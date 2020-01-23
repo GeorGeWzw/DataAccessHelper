@@ -15,7 +15,7 @@ namespace DataAccessHelper
     /// <summary>
     /// .NET EF Core框架帮助类
     /// </summary>
-    public class DataAccessor : IDataAccessor
+    public class DataAccessor : IDataAccessor, IMappingMutable
     {
         private static object LockObj = new object();
 
@@ -29,6 +29,41 @@ namespace DataAccessHelper
         public static void SetContextType(Type t)
         {
             BaseDataAccessor.SetContextType(t);
+        }
+
+        /// <summary>
+        /// 更换数据库, 数据表映射使用传入的映射规则
+        /// </summary>
+        /// <param name="connStr">新的数据库连接字符串</param>
+        /// <param name="rules">映射规则</param>
+        /// <exception cref="ArgumentException">type类型不支持</exception>
+        public void ChangeDataBase(string connStr, List<TableMappingRule> rules)
+        {
+            // close
+            var accessor = BaseAccessor.Value;
+            if (!accessor.IsClose())
+            {
+                accessor.Close();
+            }
+            // new base accessor
+            accessor = new BaseDataAccessor();
+            lock(LockObj)
+            {
+                var context = accessor.GetDbContext();
+                // change connection
+                context.Database.GetDbConnection().ConnectionString = connStr;
+                foreach (var rule in rules)
+                {
+                    GetTableName(rule.MappingType, accessor);
+                    // get table name
+                    string tableNm = rule.Mapper.GetMappingTableName(rule.MappingType, rule.Condition);
+                    if (context.Model.FindEntityType(rule.MappingType)?.Relational() is RelationalEntityTypeAnnotations relational)
+                    {
+                        relational.TableName = tableNm;
+                    }
+                }
+            }
+            BaseAccessor.Value = accessor;
         }
 
         /// <summary>
@@ -75,13 +110,6 @@ namespace DataAccessHelper
                     DynamicModelCacheKeyFactory.ChangeTableMapping();
 
                     var context = accessor.GetDbContext();
-
-                    var types = context.Model.GetEntityTypes();
-                    foreach (var t in types)
-                    {
-                        Type refType = t.ClrType;
-                        
-                    }
 
                     foreach (var rule in rules)
                     {
